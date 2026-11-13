@@ -372,3 +372,25 @@ class STRtree:
 
         # arrays are now roughly representative of what tree.query_nearest would provide, though
         # some query_nearest neighbors may be missed if they are outside tolerance
+
+
+class PointDistanceBroadcastSuite:
+    """The 4000-point distance workload from issue #2038, with control layouts."""
+
+    params = ["matrix", "paired", "scalar"]
+    param_names = ["layout"]
+
+    def setup(self, layout):
+        points = shapely.points(np.random.RandomState(0).rand(4000, 2))
+        if layout == "matrix":
+            self.a, self.b = points, points.reshape(-1, 1)
+        elif layout == "paired":
+            self.a, self.b = points, points[::-1]
+        else:
+            self.a, self.b = points, points[0]
+
+    def time_distance(self, layout):
+        shapely.distance(self.a, self.b)
+
+    def peakmem_distance(self, layout):
+        return shapely.distance(self.a, self.b)

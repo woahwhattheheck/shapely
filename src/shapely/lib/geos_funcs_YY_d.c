@@ -202,6 +202,23 @@ finish:
  */
 static PyUFuncGenericFunction YY_d_funcs[1] = {&YY_d_func};
 
+/* Coordinates are extracted once per input geometry by measurement.distance.
+ * NumPy then broadcasts these compact arrays directly into the output loop,
+ * without allocating intermediate pairwise differences. */
+static void dddd_d_distance_func(char** args, const npy_intp* dimensions,
+                                 const npy_intp* steps, void* data) {
+  QUATERNARY_LOOP {
+    double dx = *(double*)ip1 - *(double*)ip3;
+    double dy = *(double*)ip2 - *(double*)ip4;
+    /* Match GEOS CoordinateXY::distance, including its floating-point range. */
+    *(double*)op1 = sqrt(dx * dx + dy * dy);
+  }
+}
+
+static PyUFuncGenericFunction dddd_d_distance_funcs[1] = {&dddd_d_distance_func};
+static char dddd_d_distance_dtypes[5] = {NPY_DOUBLE, NPY_DOUBLE, NPY_DOUBLE,
+                                        NPY_DOUBLE, NPY_DOUBLE};
+
 /*
  * Type signature for the ufunc: takes two NPY_OBJECT (geometries), returns NPY_DOUBLE.
  * This tells NumPy what input and output types this ufunc supports.
@@ -284,6 +301,18 @@ int init_geos_funcs_YY_d(PyObject* m, PyObject* d) {
   PyObject* ufunc;  // Temporary variable for ufunc creation
 
   INIT_YY_d(GEOSDistance_r, distance);
+  static void* distance_points_data[1] = {NULL};
+  ufunc = PyUFunc_FromFuncAndData(dddd_d_distance_funcs, distance_points_data,
+                                 dddd_d_distance_dtypes, 1, 4, 1, PyUFunc_None,
+                                 "distance", "", 0);
+  if (ufunc == NULL) {
+    return -1;
+  }
+  if (PyDict_SetItemString(d, "_distance_points", ufunc) < 0) {
+    Py_DECREF(ufunc);
+    return -1;
+  }
+  Py_DECREF(ufunc);
   INIT_YY_d(GEOSFrechetDistance_r, frechet_distance);
   INIT_YY_d(GEOSHausdorffDistance_r, hausdorff_distance);
   INIT_YY_d(GEOSProjectWrapped_r, line_locate_point);

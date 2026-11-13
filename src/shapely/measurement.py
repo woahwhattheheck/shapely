@@ -1,6 +1,7 @@
 """Methods for measuring (between) geometries."""
 
 import warnings
+from math import prod
 
 import numpy as np
 
@@ -48,6 +49,49 @@ def area(geometry, **kwargs):
     return lib.area(geometry, **kwargs)
 
 
+def _distance_point_broadcast(a, b, kwargs):
+    # Decode coordinates once when broadcasting reuses them often enough to
+    # amortize extraction. Keep custom array dispatch on the geometry ufunc.
+    if type(a) is not np.ndarray or type(b) is not np.ndarray:
+        return None
+    if a.size * b.size < 1024:
+        return None
+    if a.dtype != object or b.dtype != object or kwargs.keys() - {"out", "where"}:
+        return None
+    out = kwargs.get("out")
+    if type(out) is tuple:
+        if len(out) != 1:
+            return None
+        out = out[0]
+    if out is not None and (type(out) is not np.ndarray or out.dtype != np.float64):
+        return None
+    where = kwargs.get("where", True)
+    if not isinstance(where, (bool, np.bool_)) and not (
+        type(where) is np.ndarray and where.dtype == bool
+    ):
+        return None
+    try:
+        size = prod(np.broadcast_shapes(a.shape, b.shape))
+    except ValueError:
+        return None
+    if size < 1024 or size < 8 * (a.size + b.size):
+        return None
+
+    try:
+        if not np.all(lib.get_type_id(a) == 0) or not np.all(lib.get_type_id(b) == 0):
+            return None
+    except TypeError:
+        # A non-geometry object may be excluded by `where`; let the original
+        # ufunc apply its mask before validating individual objects.
+        return None
+    x1, y1 = lib.get_x(a), lib.get_y(a)
+    x2, y2 = lib.get_x(b), lib.get_y(b)
+    if not all(np.all(np.isfinite(c)) for c in (x1, y1, x2, y2)):
+        # Empty and non-finite points retain GEOS's handling and error behavior.
+        return None
+    return lib._distance_points(x1, y1, x2, y2, **kwargs)
+
+
 def distance(a, b, **kwargs):
     """Compute the Cartesian distance between two geometries.
 
@@ -75,6 +119,16 @@ def distance(a, b, **kwargs):
     nan
 
     """
+    if (
+        type(a) is np.ndarray
+        and a.size > 8
+        and type(b) is np.ndarray
+        and b.size > 8
+        and a.shape != b.shape
+    ):
+        result = _distance_point_broadcast(a, b, kwargs)
+        if result is not None:
+            return result
     return lib.distance(a, b, **kwargs)
 
 
